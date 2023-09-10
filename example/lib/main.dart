@@ -24,24 +24,12 @@ class _MyAppState extends State<MyApp> {
           title: const Text('PencilKit Example'),
           actions: [
             IconButton(
-              icon: const Icon(Icons.palette),
-              onPressed: () => controller.show(),
-            ),
-            IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: () => controller.hide(),
-            ),
-            IconButton(
-              icon: const Icon(Icons.undo),
-              onPressed: () => controller.undo(),
-            ),
-            IconButton(
-              icon: const Icon(Icons.redo),
-              onPressed: () => controller.redo(),
+              icon: const Icon(Icons.refresh),
+              onPressed: () => controller.clear(),
             ),
             IconButton(
               icon: const Icon(Icons.refresh),
-              onPressed: () => controller.clear(),
+              onPressed: () => controller.save("Demo"),
             ),
           ],
         ),

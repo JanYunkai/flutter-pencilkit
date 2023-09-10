@@ -1,6 +1,11 @@
 import Flutter
 import UIKit
 import PencilKit
+import Foundation
+// import photokit
+// import PhotosUI
+import Photos
+// import PHPhotoLibrary
 
 class FLPencilKitFactory: NSObject, FlutterPlatformViewFactory{
 	private var messenger: FlutterBinaryMessenger
@@ -27,7 +32,9 @@ class FLPencilKitFactory: NSObject, FlutterPlatformViewFactory{
 class FLPencilKit: NSObject, FlutterPlatformView {
 	private var _view: UIView
 	private var methodChannel: FlutterMethodChannel
-	func view() -> UIView { return _view }
+	func view() -> UIView { 
+		return _view 
+	}
 	
 	init(
 		frame: CGRect,
@@ -46,20 +53,22 @@ class FLPencilKit: NSObject, FlutterPlatformView {
 	}
 	
 	
-	private func onMethodCall(call: FlutterMethodCall, result: FlutterResult) {
+	private func onMethodCall(call: FlutterMethodCall, result: @escaping FlutterResult) {
 		if #available(iOS 13.0, *) {
 			guard let pencilKitView = _view as? PencilKitView else { return }
 			switch(call.method){
 				case "clear":
 					pencilKitView.clear()
-				case "redo":
-					pencilKitView.redo()
-				case "undo":
-					pencilKitView.undo()
-				case "show":
-					pencilKitView.show()
-				case "hide":
-					pencilKitView.hide()
+				case "dataRepresentation":
+					result(pencilKitView.dataRepresentation())
+				case "saveAndGet":
+					let imageName = call.arguments as! String
+					// let imageName = args["imageName"] as! String
+					result(pencilKitView.saveAndGet(imageName))
+				case "save":
+					let albumName = call.arguments as! String
+					pencilKitView.save(albumName, result)
+					// result(pencilKitView.identifier)
 				case "applyProperties":
 					pencilKitView.applyProperties(properties: call.arguments as! [String : Any?]);
 				default:
@@ -82,6 +91,7 @@ fileprivate class PencilKitView: UIView {
 		v.isOpaque = false
 		return v
 	}()
+	var identifier: String? = nil
 	private var toolPickerForIos14: PKToolPicker? = nil
 	private var toolPicker: PKToolPicker? {
 		get {
@@ -123,6 +133,7 @@ fileprivate class PencilKitView: UIView {
 		toolPicker?.addObserver(canvasView)
 		toolPicker?.addObserver(self)
 		toolPicker?.setVisible(true, forFirstResponder: canvasView)
+		canvasView.becomeFirstResponder()
 	}
 	
 	deinit {
@@ -133,18 +144,55 @@ fileprivate class PencilKitView: UIView {
 	func clear(){
 		canvasView.drawing = PKDrawing()
 	}
-	func undo(){
-		canvasView.undoManager?.undo()
+
+	func dataRepresentation() -> Data {
+		return canvasView.drawing.dataRepresentation()
 	}
-	func redo(){
-		canvasView.undoManager?.redo()
+
+	/// Returns the user-domain directory of the given type.
+	private func getDirectory(ofType directory: FileManager.SearchPathDirectory) -> String? {
+		let paths = NSSearchPathForDirectoriesInDomains(
+			directory,
+			FileManager.SearchPathDomainMask.userDomainMask,
+			true)
+		return paths.first
 	}
-	func show(){
-		canvasView.becomeFirstResponder()
+
+	func saveAndGet(_ imageName: String) -> String {		
+		let drawing = canvasView.drawing
+		let image = drawing.image(from: drawing.bounds, scale: UIScreen.main.scale)
+		let imageData = image.jpegData(compressionQuality: 1.0)
+		
+        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let fileURL = documentsDirectory.appendingPathComponent(imageName)
+        try? imageData?.write(to: fileURL)
+		return fileURL.absoluteString
 	}
-	func hide(){
-		canvasView.resignFirstResponder()
+
+	func _del(_ identifier: String) {
+		let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject
+		PHPhotoLibrary.shared().performChanges({
+			PHAssetChangeRequest.deleteAssets([asset] as NSArray)
+		}, completionHandler: { success, error in
+			if success {
+				self.identifier = nil
+				print("Image deleted from gallery")
+			}
+		})
 	}
+
+	func save(_ albumName: String, _ result: @escaping FlutterResult) {
+		let drawing = canvasView.drawing		
+		let image = drawing.image(from: drawing.bounds, scale: UIScreen.main.scale)
+
+		PHPhotoLibrary.saveImage(image: image, albumName: albumName) { assert in
+			let localIdentifier = assert!.localIdentifier
+			self.identifier = localIdentifier
+			result(localIdentifier)
+			print("\(localIdentifier)")
+		}
+	}
+
 	func applyProperties(properties: [String:Any?]) {
 		if let alwaysBounceVertical = properties["alwaysBounceVertical"] as? Bool {
 			canvasView.alwaysBounceVertical = alwaysBounceVertical
@@ -197,4 +245,116 @@ extension UIColor {
 		
 		self.init(red: red, green: green, blue: blue, alpha: alpha)
 	}
+}
+
+
+public extension PHPhotoLibrary {
+    
+    typealias PhotoAsset = PHAsset
+    typealias PhotoAlbum = PHAssetCollection
+    
+    static func saveImage(image: UIImage, albumName: String, completion: @escaping (PHAsset?)->()) {
+        if let album = self.findAlbum(albumName: albumName) {
+            saveImage(image: image, album: album, completion: completion)
+            return
+        }
+        createAlbum(albumName: albumName) { album in
+            if let album = album {
+                self.saveImage(image: image, album: album, completion: completion)
+            }
+            else {
+                assert(false, "Album is nil")
+            }
+        }
+    }
+    
+    static private func saveImage(image: UIImage, album: PhotoAlbum, completion: @escaping (PHAsset?)->()) {
+        var photoPlaceholder: PHObjectPlaceholder?
+        PHPhotoLibrary.shared().performChanges({
+				// Request creating an asset from the image
+				let createAssetRequest = PHAssetChangeRequest.creationRequestForAsset(from: image)
+				// Request editing the album
+				guard let albumChangeRequest = PHAssetCollectionChangeRequest(for: album) else {
+					assert(false, "Album change request failed")
+					return
+				}
+				guard let placeholder = createAssetRequest.placeholderForCreatedAsset else {
+					assert(false, "photoPlaceholder is nil")
+					return
+				}
+				
+				photoPlaceholder = placeholder
+				albumChangeRequest.addAssets([photoPlaceholder] as NSArray)
+            }, completionHandler: { (success, error) in
+                guard let assetID = photoPlaceholder?.localIdentifier else {
+                    assert(false, "Placeholder is nil")
+                    completion(nil)
+                    return
+                }
+                
+                if success {
+					let result = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil)
+                    completion(result.firstObject)
+                } else {
+                    print(error)
+                    completion(nil)
+                }
+        })
+    }
+
+    static func findAlbum(albumName: String) -> PhotoAlbum? {
+        let fetchOptions = PHFetchOptions()
+        fetchOptions.predicate = NSPredicate(format: "title = %@", albumName)
+        let fetchResult = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: fetchOptions)
+        guard let photoAlbum = fetchResult.firstObject as? PHAssetCollection else {
+            return nil
+        }
+        return photoAlbum
+    }
+    
+    static func createAlbum(albumName: String, completion: @escaping (PhotoAlbum?)->()) {
+        var albumPlaceholder: PHObjectPlaceholder?
+        PHPhotoLibrary.shared().performChanges({
+				// Request creating an album with parameter name
+				let createAlbumRequest = PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: albumName)
+				// Get a placeholder for the new album
+				albumPlaceholder = createAlbumRequest.placeholderForCreatedAssetCollection
+            }, completionHandler: { (success, error) in
+                guard let placeholder = albumPlaceholder else {
+                    assert(false, "Album placeholder is nil")
+                    completion(nil)
+                    return
+                }
+                
+                let fetchResult = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [placeholder.localIdentifier], options: nil)
+                guard let album = fetchResult.firstObject as? PhotoAlbum else {
+                    assert(false, "FetchResult has no PHAssetCollection")
+                    completion(nil)
+                    return
+                }
+                
+                if success {
+                    completion(album)
+                }
+                else {
+                    print(error)
+                    completion(nil)
+                }
+        })
+    }
+    
+    static func loadThumbnailFromLocalIdentifier(localIdentifier: String, completion: @escaping (UIImage?)->()) {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil).firstObject else {
+            completion(nil)
+            return
+        }
+        loadThumbnailFromAsset(asset, completion: completion)
+    }
+    
+    static func loadThumbnailFromAsset(_ asset: PhotoAsset, completion: @escaping (UIImage?)->()) {
+        PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: 100.0, height: 100.0), contentMode: .aspectFit, options: PHImageRequestOptions(), resultHandler: { result, info in
+            completion(result)
+        })
+    }
+    
 }

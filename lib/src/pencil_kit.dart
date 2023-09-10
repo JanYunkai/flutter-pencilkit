@@ -29,20 +29,20 @@ enum PencilKitIos14DrawingPolicy {
 }
 
 class PencilKit extends StatefulWidget {
-  const PencilKit({
-    super.key,
-    this.hitTestBehavior,
-    this.onPencilKitViewCreated,
-    this.unAvailableFallback,
-    this.alwaysBounceVertical,
-    this.alwaysBounceHorizontal,
-    this.isRulerActive,
-    this.drawingPolicy,
-    this.onRulerActiveChanged,
-    this.isOpaque,
-    this.backgroundColor,
-    this.onToolPickerVisibilityChanged,
-  });
+  const PencilKit(
+      {super.key,
+      this.hitTestBehavior,
+      this.onPencilKitViewCreated,
+      this.unAvailableFallback,
+      this.alwaysBounceVertical,
+      this.alwaysBounceHorizontal,
+      this.isRulerActive,
+      this.drawingPolicy,
+      this.onRulerActiveChanged,
+      this.isOpaque,
+      this.backgroundColor,
+      this.onToolPickerVisibilityChanged,
+      this.saveCallback});
 
   /// {@macro flutter.widgets.AndroidView.hitTestBehavior}
   final PlatformViewHitTestBehavior? hitTestBehavior;
@@ -81,6 +81,8 @@ class PencilKit extends StatefulWidget {
 
   /// A callback for ruler activate state changed
   final void Function(bool isRulerActive)? onRulerActiveChanged;
+
+  final void Function(String imagePath)? saveCallback;
 
   @override
   State<PencilKit> createState() => _PencilKitState();
@@ -185,11 +187,23 @@ class PencilKitController {
 
   Future<void> clear() => _channel.invokeMethod('clear');
 
-  Future<void> redo() => _channel.invokeMethod('redo');
+  Future<String> save(String albumName) async {
+    return await _channel.invokeMethod('save', albumName) as String;
+  }
 
-  Future<void> undo() => _channel.invokeMethod('undo');
+  Future<Uint8List> dataRepresentation() async {
+    return await _channel.invokeMethod('dataRepresentation') as Uint8List;
+  }
 
-  Future<void> show() => _channel.invokeMethod('show');
+  Future<String> saveAndGet(String imageName) async {
+    return await _channel.invokeMethod('saveAndGet', imageName) as String;
+  }
 
-  Future<void> hide() => _channel.invokeMethod('hide');
+  // Future<void> redo() => _channel.invokeMethod('redo');
+
+  // Future<void> undo() => _channel.invokeMethod('undo');
+
+  // Future<void> show() => _channel.invokeMethod('show');
+
+  // Future<void> hide() => _channel.invokeMethod('hide');
 }
