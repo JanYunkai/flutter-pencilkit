@@ -62,13 +62,11 @@ class FLPencilKit: NSObject, FlutterPlatformView {
 				case "dataRepresentation":
 					result(pencilKitView.dataRepresentation())
 				case "saveAndGet":
-					let imageName = call.arguments as! String
-					// let imageName = args["imageName"] as! String
-					result(pencilKitView.saveAndGet(imageName))
+					let albumName = call.arguments as! String
+					pencilKitView.saveAndGet(albumName, result)
 				case "save":
 					let albumName = call.arguments as! String
 					pencilKitView.save(albumName, result)
-					// result(pencilKitView.identifier)
 				case "applyProperties":
 					pencilKitView.applyProperties(properties: call.arguments as! [String : Any?]);
 				default:
@@ -158,15 +156,21 @@ fileprivate class PencilKitView: UIView {
 		return paths.first
 	}
 
-	func saveAndGet(_ imageName: String) -> String {		
+	func saveAndGet(_ albumName: String, _ result: @escaping FlutterResult) {		
 		let drawing = canvasView.drawing
 		let image = drawing.image(from: drawing.bounds, scale: UIScreen.main.scale)
+		PHPhotoLibrary.saveImage(image: image, albumName: albumName) { (assert) in
+			let localIdentifier = assert!.localIdentifier
+			self.identifier = localIdentifier
+			// result(localIdentifier)
+			print("\(localIdentifier)")
+		}
 		let imageData = image.jpegData(compressionQuality: 1.0)
-		
-        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let fileURL = documentsDirectory.appendingPathComponent(imageName)
+		let temporaryDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        // let temporaryDirectory = FileManager.default.urls(for: .temporaryDirectory, in: .userDomainMask).first!
+        let fileURL = temporaryDirectory.appendingPathComponent("wa_pencilkit_\(UUID().uuidString).jpg")
         try? imageData?.write(to: fileURL)
-		return fileURL.absoluteString
+		result(fileURL.path)
 	}
 
 	func _del(_ identifier: String) {
@@ -185,7 +189,7 @@ fileprivate class PencilKitView: UIView {
 		let drawing = canvasView.drawing		
 		let image = drawing.image(from: drawing.bounds, scale: UIScreen.main.scale)
 
-		PHPhotoLibrary.saveImage(image: image, albumName: albumName) { assert in
+		PHPhotoLibrary.saveImage(image: image, albumName: albumName) { (assert) in
 			let localIdentifier = assert!.localIdentifier
 			self.identifier = localIdentifier
 			result(localIdentifier)
@@ -258,7 +262,7 @@ public extension PHPhotoLibrary {
             saveImage(image: image, album: album, completion: completion)
             return
         }
-        createAlbum(albumName: albumName) { album in
+        createAlbum(albumName: albumName) { album in 
             if let album = album {
                 self.saveImage(image: image, album: album, completion: completion)
             }
@@ -293,8 +297,8 @@ public extension PHPhotoLibrary {
                 }
                 
                 if success {
-					let result = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil)
-                    completion(result.firstObject)
+					let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil).firstObject
+					completion(asset)
                 } else {
                     print(error)
                     completion(nil)

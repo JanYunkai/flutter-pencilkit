@@ -195,8 +195,9 @@ class PencilKitController {
     return await _channel.invokeMethod('dataRepresentation') as Uint8List;
   }
 
-  Future<String> saveAndGet(String imageName) async {
-    return await _channel.invokeMethod('saveAndGet', imageName) as String;
+  // save to album and get temp file
+  Future<String> saveAndGet(String albumName) async {
+    return await _channel.invokeMethod('saveAndGet', albumName) as String;
   }
 
   // Future<void> redo() => _channel.invokeMethod('redo');
